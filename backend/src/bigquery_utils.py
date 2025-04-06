@@ -62,8 +62,8 @@ def upload_to_bigquery(df: pd.DataFrame, table_id: str = TABLE_ID) -> Dict[str, 
         job_config = bigquery.LoadJobConfig(
             schema=[
                 bigquery.SchemaField("name", "STRING"),
-                bigquery.SchemaField("email", "STRING", mode="REQUIRED"),
-                bigquery.SchemaField("date", "STRING"),
+                bigquery.SchemaField("email", "STRING"),
+                bigquery.SchemaField("date", "STRING"),  # Changed from DATE to STRING
                 bigquery.SchemaField("status", "STRING"),
                 bigquery.SchemaField("attendance", "STRING"),
             ],
