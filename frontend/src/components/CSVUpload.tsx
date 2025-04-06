@@ -11,7 +11,7 @@ interface CSVUploadProps {
   onUploadComplete: (date: string) => void;
 }
 
-const API_URL = 'http://localhost:8000';
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
 const CSVUpload = ({ onUploadComplete }: CSVUploadProps) => {
   const [uploading, setUploading] = useState(false);
@@ -122,7 +122,7 @@ const CSVUpload = ({ onUploadComplete }: CSVUploadProps) => {
         // Add empty attendance field
         rowData["attendance"] = "";
         
-        // Add selected date as the date field
+        // Add selected date as string format for the date field
         rowData["date"] = selectedDate;
         
         return rowData;
