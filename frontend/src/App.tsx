@@ -3,15 +3,17 @@ import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
-import { ClerkProvider } from '@clerk/clerk-react'
+import { ClerkProvider } from "@clerk/clerk-react";
 import Index from "./pages/Index";
 import NotFound from "./pages/NotFound";
+import { Navbar } from "./components/Navbar";
+// Remove ProtectedRoute import since we won't use it
 
 const queryClient = new QueryClient();
-const clerkPubKey = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY
+const clerkPubKey = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY;
 
 if (!clerkPubKey) {
-  throw new Error("Missing Clerk Publishable Key")
+  throw new Error("Missing Clerk Publishable Key");
 }
 
 const App = () => (
@@ -21,11 +23,15 @@ const App = () => (
         <Toaster />
         <Sonner />
         <BrowserRouter>
-          <Routes>
-            <Route path="/" element={<Index />} />
-            {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
-            <Route path="*" element={<NotFound />} />
-          </Routes>
+          <div className="min-h-screen bg-background">
+            <Navbar />
+            <main className="container py-6">
+              <Routes>
+                <Route path="/" element={<Index />} />
+                <Route path="*" element={<NotFound />} />
+              </Routes>
+            </main>
+          </div>
         </BrowserRouter>
       </TooltipProvider>
     </QueryClientProvider>
