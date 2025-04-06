@@ -6,6 +6,8 @@ from typing import List, Dict, Any, Optional
 import os
 import pandas as pd
 from datetime import date
+import io
+import re
 
 # Configuration
 PROJECT_ID = os.environ.get("GCP_PROJECT_ID", "sundai-club-434220")
@@ -13,193 +15,186 @@ DATASET_ID = os.environ.get("BQ_DATASET_ID", "partiful_data")
 TABLE_ID = os.environ.get("BQ_TABLE_ID", "partiful_checkin_data")
 CREDENTIALS_PATH = "../sundai-club-434220-6268a5eb56bb.json"
 
+# Shared schema
+BQ_SCHEMA = [
+    bigquery.SchemaField("name", "STRING"),
+    bigquery.SchemaField("email", "STRING", mode="REQUIRED"),
+    bigquery.SchemaField("date", "STRING"),
+    bigquery.SchemaField("status", "STRING"),
+    bigquery.SchemaField("attendance", "STRING"),
+]
+
 def get_bigquery_client():
-    """
-    Initialize and return a BigQuery client with proper authentication.
-    """
     try:
         if CREDENTIALS_PATH:
             credentials = service_account.Credentials.from_service_account_file(
                 CREDENTIALS_PATH, scopes=["https://www.googleapis.com/auth/cloud-platform"]
             )
             return bigquery.Client(credentials=credentials, project=PROJECT_ID)
-        else:
-            # Use default credentials (for deployment environments like GCP)
-            return bigquery.Client(project=PROJECT_ID)
+        return bigquery.Client(project=PROJECT_ID)
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to initialize BigQuery client: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"BigQuery client init failed: {str(e)}")
+
+def clean_text_for_csv(text: Optional[str]) -> str:
+    """Clean text to handle emojis and other problematic Unicode characters."""
+    if text is None:
+        return ""
+    
+    # Convert to string if it's not already
+    text = str(text)
+    
+    # Option 1: Remove emojis and other non-BMP characters
+    # This regex matches emojis and other characters outside the Basic Multilingual Plane
+    emoji_pattern = re.compile(
+        "["
+        "\U0001F600-\U0001F64F"  # emoticons
+        "\U0001F300-\U0001F5FF"  # symbols & pictographs
+        "\U0001F680-\U0001F6FF"  # transport & map symbols
+        "\U0001F700-\U0001F77F"  # alchemical symbols
+        "\U0001F780-\U0001F7FF"  # Geometric Shapes
+        "\U0001F800-\U0001F8FF"  # Supplemental Arrows-C
+        "\U0001F900-\U0001F9FF"  # Supplemental Symbols and Pictographs
+        "\U0001FA00-\U0001FA6F"  # Chess Symbols
+        "\U0001FA70-\U0001FAFF"  # Symbols and Pictographs Extended-A
+        "\U00002702-\U000027B0"  # Dingbats
+        "\U000024C2-\U0000257F"  # Enclosed characters
+        "]+", 
+        flags=re.UNICODE
+    )
+    
+    # Replace emojis with an empty string
+    return emoji_pattern.sub('', text)
 
 def upload_to_bigquery(df: pd.DataFrame, table_id: str = TABLE_ID) -> Dict[str, Any]:
-    """
-    Upload pandas DataFrame to BigQuery table.
-    
-    Args:
-        df: Pandas DataFrame with data to upload
-        table_id: BigQuery table ID
-        
-    Returns:
-        Dict with upload results
-    """
     client = get_bigquery_client()
-    
+
     try:
-        # Ensure the DataFrame has the required schema columns
         required_columns = ["name", "email", "date", "status", "attendance"]
-        for col in required_columns:
-            if col not in df.columns:
+        missing_cols = [col for col in required_columns if col not in df.columns]
+        if missing_cols:
+            raise HTTPException(status_code=400, detail=f"Missing required columns: {missing_cols}")
+            
+        # First check if there are any missing values in the required 'email' column
+        # Since 'email' is marked as REQUIRED in the schema
+        if df['email'].isna().any() or (df['email'] == '').any():
+            # Find indices with missing emails
+            bad_indices = df.index[df['email'].isna() | (df['email'] == '')].tolist()
+            # Either remove those rows
+            df = df.dropna(subset=['email']).reset_index(drop=True)
+            # Or raise an exception with detailed information
+            if len(df) == 0:  # If all rows have been removed
                 raise HTTPException(
                     status_code=400, 
-                    detail=f"Missing required column '{col}' in data"
+                    detail=f"All rows are missing required 'email' values. Cannot upload empty dataset."
                 )
+            
+            # Log the information about removed rows
+            print(f"Removed {len(bad_indices)} rows with missing email values at indices: {bad_indices}")
+
+        # Clean the data to handle emojis and other problematic characters
+        for col in required_columns:
+            df[col] = df[col].apply(clean_text_for_csv)
+
+        # Only select the required columns and ensure they're all strings
+        df = df[required_columns].fillna("").astype(str)
         
-        # Convert to list of dictionaries for BigQuery
-        records = df.to_dict('records')
+        # Additional validation for email field (it's required!)
+        # Remove any rows where email is empty after cleaning
+        df = df[df['email'] != ''].reset_index(drop=True)
         
-        # Define table reference
-        table_ref = f"{PROJECT_ID}.{DATASET_ID}.{table_id}"
-        
-        # Define schema explicitly to match your requirements
+        if len(df) == 0:
+            raise HTTPException(
+                status_code=400,
+                detail="No valid rows to upload after filtering out invalid data."
+            )
+
+        # Use BytesIO with UTF-8 encoding instead of StringIO
+        buffer = io.BytesIO()
+        df.to_csv(buffer, index=False, encoding="utf-8")
+        buffer.seek(0)
+
         job_config = bigquery.LoadJobConfig(
-            schema=[
-                bigquery.SchemaField("name", "STRING"),
-                bigquery.SchemaField("email", "STRING"),
-                bigquery.SchemaField("date", "STRING"),  # Changed from DATE to STRING
-                bigquery.SchemaField("status", "STRING"),
-                bigquery.SchemaField("attendance", "STRING"),
-            ],
+            schema=BQ_SCHEMA,
+            skip_leading_rows=1,
             write_disposition=bigquery.WriteDisposition.WRITE_APPEND,
+            source_format=bigquery.SourceFormat.CSV,
+            # Use UTF-8 for BigQuery as well
+            encoding="UTF-8",
+            # Add max_bad_records to make the upload more tolerant
+            max_bad_records=0,  # No tolerance for bad records since we're cleaning them beforehand
         )
-        
-        load_job = client.load_table_from_json(
-            records,
-            table_ref,
-            job_config=job_config
-        )
-        
-        # Wait for the job to complete
-        load_job.result()
-        
+
+        table_ref = f"{PROJECT_ID}.{DATASET_ID}.{table_id}"
+        load_job = client.load_table_from_file(buffer, table_ref, job_config=job_config)
+        load_job.result()  # Wait for the job to complete
+
         return {
             "success": True,
-            "rows_uploaded": len(records),
-            "message": f"Successfully uploaded {len(records)} rows to BigQuery"
+            "rows_uploaded": len(df),
+            "message": f"Successfully uploaded {len(df)} rows to BigQuery"
         }
-        
+
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to upload to BigQuery: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")
 
 def verify_data(field: str, value: str, table_id: str = TABLE_ID) -> Dict[str, Any]:
-    """
-    Verify if a specific field value exists in the BigQuery table.
-    
-    Args:
-        field: Field name to check (email or name)
-        value: Value to search for
-        table_id: BigQuery table ID
-        
-    Returns:
-        Dict with verification results and matches
-    """
-    client = get_bigquery_client()
-    
     if field not in ["email", "name"]:
         raise HTTPException(status_code=400, detail="Field must be 'email' or 'name'")
-    
+
+    client = get_bigquery_client()
     try:
-        # Sanitize input for SQL injection prevention
-        sanitized_value = value.replace("'", "''")
+        # Clean and sanitize the input value
+        value = clean_text_for_csv(value)
+        value = value.replace("'", "''")
         
-        # Build and execute query
         query = f"""
-        SELECT *
-        FROM `{PROJECT_ID}.{DATASET_ID}.{table_id}`
-        WHERE {field} = '{sanitized_value}'
+        SELECT * FROM `{PROJECT_ID}.{DATASET_ID}.{table_id}`
+        WHERE {field} = '{value}'
         ORDER BY date DESC
         LIMIT 10
         """
-        
-        query_job = client.query(query)
-        results = list(query_job)
-        
-        # Convert to dict and handle datetime objects
+        results = list(client.query(query))
         matches = []
         for row in results:
-            match = dict(row.items())
-            # Convert datetime objects to strings for JSON serialization
-            for key, value in match.items():
-                if isinstance(value, (date, pd.Timestamp)):
-                    match[key] = value.isoformat()
+            match = {k: (v.isoformat() if isinstance(v, (date, pd.Timestamp)) else v) for k, v in row.items()}
             matches.append(match)
-        
-        return {
-            "exists": len(matches) > 0,
-            "matches": matches
-        }
-        
+
+        return {"exists": len(matches) > 0, "matches": matches}
+
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Verification failed: {str(e)}")
 
 def update_attendance(email: str, date_str: str, attendance_value: str, table_id: str = TABLE_ID) -> Dict[str, Any]:
-    """
-    Update the attendance field for a specific email and date.
-    
-    Args:
-        email: Email to update
-        date_str: Date string in YYYY-MM-DD format
-        attendance_value: New attendance value
-        table_id: BigQuery table ID
-        
-    Returns:
-        Dict with update results
-    """
     client = get_bigquery_client()
-    
     try:
-        # Sanitize inputs
-        sanitized_email = email.replace("'", "''")
-        sanitized_attendance = attendance_value.replace("'", "''")
-        
-        # Build and execute query to update attendance
+        # Clean and sanitize the input values
+        email = clean_text_for_csv(email).replace("'", "''")
+        attendance_value = clean_text_for_csv(attendance_value).replace("'", "''")
+        date_str = clean_text_for_csv(date_str)
+
         query = f"""
         UPDATE `{PROJECT_ID}.{DATASET_ID}.{table_id}`
-        SET attendance = '{sanitized_attendance}'
-        WHERE email = '{sanitized_email}'
-        AND date = '{date_str}'
+        SET attendance = '{attendance_value}'
+        WHERE email = '{email}' AND date = '{date_str}'
         """
-        
-        query_job = client.query(query)
-        query_job.result()  # Wait for the job to complete
-        
-        # Check if any rows were affected
-        if query_job.num_dml_affected_rows == 0:
-            return {
-                "success": False,
-                "message": "No matching records found to update"
-            }
-        
+        job = client.query(query)
+        job.result()
+
+        if job.num_dml_affected_rows == 0:
+            return {"success": False, "message": "No matching records found to update"}
+
         return {
             "success": True,
-            "rows_updated": query_job.num_dml_affected_rows,
-            "message": f"Successfully updated attendance for {email} on {date_str}"
+            "rows_updated": job.num_dml_affected_rows,
+            "message": f"Updated attendance for {email} on {date_str}"
         }
-        
+
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Attendance update failed: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Update failed: {str(e)}")
 
 def get_events_list(table_id: str = TABLE_ID) -> List[Dict[str, Any]]:
-    """
-    Get a list of distinct event dates with attendee counts.
-    
-    Args:
-        table_id: BigQuery table ID
-        
-    Returns:
-        List of event dates with attendee counts
-    """
     client = get_bigquery_client()
-    
     try:
-        # Build and execute query
         query = f"""
         SELECT 
             date,
@@ -209,46 +204,20 @@ def get_events_list(table_id: str = TABLE_ID) -> List[Dict[str, Any]]:
         GROUP BY date
         ORDER BY date DESC
         """
-        
-        query_job = client.query(query)
-        results = list(query_job)
-        
-        # Format results
-        events = []
-        for row in results:
-            event = {
-                "date": row["date"].isoformat() if isinstance(row["date"], date) else row["date"],
-                "total_guests": row["total_guests"],
-                "checked_in": row["checked_in"]
-            }
-            events.append(event)
-        
-        return events
-        
+        results = list(client.query(query))
+        return [{
+            "date": row["date"].isoformat() if isinstance(row["date"], date) else row["date"],
+            "total_guests": row["total_guests"],
+            "checked_in": row["checked_in"]
+        } for row in results]
+
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to get events list: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to fetch events: {str(e)}")
 
 def get_table_columns(table_id: str = TABLE_ID) -> List[str]:
-    """
-    Get available columns from the BigQuery table.
-    
-    Args:
-        table_id: BigQuery table ID
-        
-    Returns:
-        List of column names
-    """
     client = get_bigquery_client()
-    
     try:
-        # Get table schema
-        table_ref = client.dataset(DATASET_ID).table(table_id)
-        table = client.get_table(table_ref)
-        
-        # Extract column names
-        columns = [field.name for field in table.schema]
-        
-        return columns
-        
+        table = client.get_table(f"{PROJECT_ID}.{DATASET_ID}.{table_id}")
+        return [field.name for field in table.schema]
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to get columns: {str(e)}")
