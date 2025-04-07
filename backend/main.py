@@ -10,7 +10,7 @@ from pydantic import BaseModel, EmailStr
 # Add these models to main.py
 
 # Import the BigQuery utilities
-from src.bigquery_utils import upload_to_bigquery, verify_data, get_table_columns, get_events_list, update_attendance
+from src.bigquery_utils import upload_to_bigquery, check_email_exists, get_table_columns, get_events_list, update_attendance
 
 app = FastAPI(title="CSV to BigQuery API")
 
@@ -96,24 +96,25 @@ async def upload_csv(
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to upload CSV: {str(e)}")
 
-@app.post("/verify/", response_model=VerificationResponse)
+@app.post("/verify/")
 async def verify_data_endpoint(verification: VerificationRequest):
     """
-    Verify if a specific email or name exists in the BigQuery table
+    Verify if a specific email exists in the BigQuery table
     """
     try:
-        result = verify_data(verification.field, verification.value)
+        # Call the simplified function that returns a boolean
+        exists = check_email_exists(verification.value)
+        print(exists)
         
-        return VerificationResponse(
-            exists=result["exists"],
-            matches=result["matches"]
-        )
+        # Since our function now returns just True/False, we create an empty matches list
+        return exists
         
     except HTTPException:
         # Re-raise HTTP exceptions
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Verification failed: {str(e)}")
+    
 
 @app.get("/columns/")
 async def get_columns_endpoint():
