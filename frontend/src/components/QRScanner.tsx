@@ -106,27 +106,15 @@ const QRScanner = ({ onScan, isScanning, setIsScanning }: QRScannerProps) => {
         scannerRef.current.clear();
         setIsScanning(false);
         
-        // Show verification in progress
-        toast.info("Verifying email...");
-        
         // Call the verification API
         const exists = await verifyEmail(decodedText);
-        
-        // Show result
-        if (exists) {
-          toast.success("Email verified", {
-            description: "The email was found in the database"
-          });
-        } else {
-          toast.error("Email not found", {
-            description: "The email was not found in the database"
-          });
-        }
         
         // Pass both the email and verification result to the parent component
         onScan(decodedText, exists);
       } catch (error) {
         console.error("Error during scan and verification process:", error);
+        // Pass false for verification status in case of error
+        onScan(decodedText, false);
       }
     }
   };

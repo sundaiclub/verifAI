@@ -1,4 +1,3 @@
-
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { CheckCircle, XCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -6,7 +5,6 @@ import { Button } from "@/components/ui/button";
 interface VerificationResultProps {
   result: {
     verified: boolean;
-    entry?: Record<string, string>;
     scannedData?: string;
   } | null;
   onReset: () => void;
@@ -33,31 +31,17 @@ const VerificationResult = ({ result, onReset }: VerificationResultProps) => {
         </CardTitle>
         <CardDescription>
           {result.verified 
-            ? "The scanned QR code matches a record in the database" 
-            : "No matching record found in the selected database"}
+            ? "The email was found in the database" 
+            : "No matching email found in the database"}
         </CardDescription>
       </CardHeader>
       <CardContent>
-        {result.verified && result.entry ? (
-          <div className="space-y-2">
-            <h3 className="font-medium">Record Details:</h3>
-            <div className="text-sm">
-              {Object.entries(result.entry).map(([key, value]) => (
-                <div key={key} className="grid grid-cols-2 gap-2 py-1 border-b">
-                  <span className="font-medium">{key}:</span>
-                  <span>{value}</span>
-                </div>
-              ))}
-            </div>
+        <div className="space-y-2">
+          <h3 className="font-medium">Scanned Email:</h3>
+          <div className="text-sm break-all border-b pb-2">
+            {result.scannedData || "No data"}
           </div>
-        ) : (
-          <div className="space-y-2">
-            <h3 className="font-medium">Scanned Data:</h3>
-            <div className="text-sm break-all border-b pb-2">
-              {result.scannedData || "No data"}
-            </div>
-          </div>
-        )}
+        </div>
         <Button className="w-full mt-4" onClick={onReset}>
           Scan Another
         </Button>
