@@ -71,7 +71,7 @@ const QRScanner = ({ onScan, isScanning, setIsScanning }: QRScannerProps) => {
   const verifyEmail = async (email: string) => {
     setIsVerifying(true);
     try {
-      const response = await fetch("http://localhost:8000/verify/", {
+      const response = await fetch("https://verifai-199983032721.us-central1.run.app/verify/", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
