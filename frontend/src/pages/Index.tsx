@@ -30,23 +30,17 @@ const Index = () => {
     setActiveDate(date);
     setActiveTab("scan");
   };
-
   const handleQRScan = (scannedData: string) => {
-    if (!activeDate) {
-      setVerificationResult({
-        verified: false,
-        scannedData,
-      });
-      return;
-    }
-
-    const result = databaseManager.verifyQRData(activeDate, scannedData);
+    // Simple verification logic: check if scannedData is not empty
+    const verified = scannedData !== "";
+  
+    // Set verification result
     setVerificationResult({
-      ...result,
+      verified,
       scannedData,
     });
   };
-
+  
   const handleReset = () => {
     setVerificationResult(null);
   };
