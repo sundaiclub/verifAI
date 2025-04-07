@@ -26,11 +26,7 @@ BQ_SCHEMA = [
 
 def get_bigquery_client():
     try:
-        if CREDENTIALS_PATH:
-            credentials = service_account.Credentials.from_service_account_file(
-                CREDENTIALS_PATH, scopes=["https://www.googleapis.com/auth/cloud-platform"]
-            )
-            return bigquery.Client(credentials=credentials, project=PROJECT_ID)
+        # return bigquery.Client(credentials=credentials, project=PROJECT_ID)
         return bigquery.Client(project=PROJECT_ID)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"BigQuery client init failed: {str(e)}")
