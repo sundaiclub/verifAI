@@ -5,7 +5,6 @@ import CSVUpload from "../components/CSVUpload";
 import QRScanner from "../components/QRScanner";
 import DateSelector from "../components/DateSelector";
 import VerificationResult from "../components/VerificationResult";
-import databaseManager from "../lib/database";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { downloadSampleCSV } from "@/lib/utils";
@@ -17,7 +16,6 @@ const Index = () => {
   const [isScanning, setIsScanning] = useState(false);
   const [verificationResult, setVerificationResult] = useState<{
     verified: boolean;
-    entry?: Record<string, string>;
     scannedData?: string;
   } | null>(null);
   const [activeTab, setActiveTab] = useState<string>("scan");
@@ -30,14 +28,12 @@ const Index = () => {
     setActiveDate(date);
     setActiveTab("scan");
   };
-  const handleQRScan = (scannedData: string) => {
-    // Simple verification logic: check if scannedData is not empty
-    const verified = scannedData !== "";
-  
-    // Set verification result
+
+  const handleQRScan = (scannedData: string, exists: boolean) => {
+    // Set verification result with the API verification status
     setVerificationResult({
-      verified,
-      scannedData,
+      verified: exists,
+      scannedData
     });
   };
   
@@ -65,13 +61,6 @@ const Index = () => {
           </TabsList>
 
           <TabsContent value="scan" className="pt-4">
-            {databaseManager.getDates().length > 0 && (
-              <DateSelector
-                onDateChange={handleDateChange}
-                activeDate={activeDate || databaseManager.getDates()[0]}
-              />
-            )}
-
             {verificationResult ? (
               <VerificationResult
                 result={verificationResult}
@@ -84,29 +73,6 @@ const Index = () => {
                 setIsScanning={setIsScanning}
               />
             )}
-
-            {databaseManager.getDates().length === 0 &&
-              !isScanning &&
-              !verificationResult && (
-                <div className="p-4 bg-white rounded-lg shadow-sm text-center">
-                  <p className="mb-2">No verification data available</p>
-                  {isSignedIn ? (
-                    <Button
-                      onClick={() => setActiveTab("upload")}
-                      variant="outline"
-                    >
-                      Upload CSV Data First
-                    </Button>
-                  ) : (
-                    <Button
-                      onClick={() => setActiveTab("upload")}
-                      variant="outline"
-                    >
-                      Sign in to Upload Data
-                    </Button>
-                  )}
-                </div>
-              )}
           </TabsContent>
 
           {isSignedIn && (
