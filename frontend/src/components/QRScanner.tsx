@@ -1,11 +1,10 @@
-
 import { useEffect, useRef, useState } from "react";
-import { Html5Qrcode, Html5QrcodeScanner, Html5QrcodeScannerState } from "html5-qrcode";
+import { Html5QrcodeScanner } from "html5-qrcode";
 import { Button } from "@/components/ui/button";
 import { toast } from "@/components/ui/sonner";
 
 interface QRScannerProps {
-  onScan: (data: string) => void;
+  onScan: (data: string, exists: boolean) => void;
   isScanning: boolean;
   setIsScanning: (scanning: boolean) => void;
 }
@@ -13,6 +12,7 @@ interface QRScannerProps {
 const QRScanner = ({ onScan, isScanning, setIsScanning }: QRScannerProps) => {
   const scannerRef = useRef<Html5QrcodeScanner | null>(null);
   const scannerDivId = "qr-reader";
+  const [isVerifying, setIsVerifying] = useState(false);
 
   useEffect(() => {
     // Only initialize if we're scanning
@@ -68,15 +68,65 @@ const QRScanner = ({ onScan, isScanning, setIsScanning }: QRScannerProps) => {
     }
   };
 
-  const handleScanSuccess = (decodedText: string) => {
-    // Stop scanning
+  const verifyEmail = async (email: string) => {
+    setIsVerifying(true);
+    try {
+      const response = await fetch("http://localhost:8000/verify/", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ 
+          field: "email",
+          value: email 
+        }),
+      });
+  
+      if (!response.ok) {
+        throw new Error(`API request failed with status ${response.status}`);
+      }
+  
+      const data = await response.json();
+      return data.exists;
+    } catch (error) {
+      console.error("Error verifying email:", error);
+      toast.error("Verification failed", {
+        description: "Could not verify the scanned email"
+      });
+      return false;
+    } finally {
+      setIsVerifying(false);
+    }
+  };
+
+  const handleScanSuccess = async (decodedText: string) => {
+    // Stop scanning first
     if (scannerRef.current) {
       try {
         scannerRef.current.clear();
         setIsScanning(false);
-        onScan(decodedText);
+        
+        // Show verification in progress
+        toast.info("Verifying email...");
+        
+        // Call the verification API
+        const exists = await verifyEmail(decodedText);
+        
+        // Show result
+        if (exists) {
+          toast.success("Email verified", {
+            description: "The email was found in the database"
+          });
+        } else {
+          toast.error("Email not found", {
+            description: "The email was not found in the database"
+          });
+        }
+        
+        // Pass both the email and verification result to the parent component
+        onScan(decodedText, exists);
       } catch (error) {
-        console.error("Error clearing scanner after successful scan:", error);
+        console.error("Error during scan and verification process:", error);
       }
     }
   };
@@ -93,8 +143,12 @@ const QRScanner = ({ onScan, isScanning, setIsScanning }: QRScannerProps) => {
           <div id={scannerDivId} className="qr-scanner-container" />
         </div>
       ) : (
-        <Button className="w-full" onClick={startScanning}>
-          Start QR Scanning
+        <Button 
+          className="w-full" 
+          onClick={startScanning}
+          disabled={isVerifying}
+        >
+          {isVerifying ? "Verifying..." : "Start QR Scanning"}
         </Button>
       )}
     </div>
