@@ -137,32 +137,28 @@ def upload_to_bigquery(df: pd.DataFrame, table_id: str = TABLE_ID) -> Dict[str, 
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")
 
-def verify_data(field: str, value: str, table_id: str = TABLE_ID) -> Dict[str, Any]:
-    if field not in ["email", "name"]:
-        raise HTTPException(status_code=400, detail="Field must be 'email' or 'name'")
-
+def check_email_exists(email: str, table_id: str = TABLE_ID) -> bool:
     client = get_bigquery_client()
     try:
-        # Clean and sanitize the input value
-        value = clean_text_for_csv(value)
-        value = value.replace("'", "''")
+        # Sanitize input
+        email = clean_text_for_csv(email)
+        email = email.replace("'", "''")
         
         query = f"""
-        SELECT * FROM `{PROJECT_ID}.{DATASET_ID}.{table_id}`
-        WHERE {field} = '{value}'
-        ORDER BY date DESC
-        LIMIT 10
+        SELECT 1 FROM `{PROJECT_ID}.{DATASET_ID}.{table_id}`
+        WHERE email = '{email}'
+        LIMIT 1
         """
+        
         results = list(client.query(query))
-        matches = []
-        for row in results:
-            match = {k: (v.isoformat() if isinstance(v, (date, pd.Timestamp)) else v) for k, v in row.items()}
-            matches.append(match)
-
-        return {"exists": len(matches) > 0, "matches": matches}
-
+        
+        # Return True if any results found, False otherwise
+        return {"exists": len(results) > 0}
+        
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Verification failed: {str(e)}")
+        # Handle the error as needed
+        print(f"Email check failed: {str(e)}")
+        return {"exists": False}
 
 def update_attendance(email: str, date_str: str, attendance_value: str, table_id: str = TABLE_ID) -> Dict[str, Any]:
     client = get_bigquery_client()
