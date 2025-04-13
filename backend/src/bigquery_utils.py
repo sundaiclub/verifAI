@@ -94,6 +94,8 @@ def upload_to_bigquery(df: pd.DataFrame, table_id: str = TABLE_ID) -> Dict[str, 
         # Clean the data to handle emojis and other problematic characters
         for col in required_columns:
             df[col] = df[col].apply(clean_text_for_csv)
+        
+        df['email'] = df['email'].str.lower()
 
         # Only select the required columns and ensure they're all strings
         df = df[required_columns].fillna("").astype(str)
@@ -143,6 +145,7 @@ def check_email_exists(email: str, table_id: str = TABLE_ID) -> bool:
         # Sanitize input
         email = clean_text_for_csv(email)
         email = email.replace("'", "''")
+        email = email.lower()
         
         query = f"""
         SELECT 1 FROM `{PROJECT_ID}.{DATASET_ID}.{table_id}`
