@@ -1,72 +1,158 @@
-
-import { useState, useEffect } from 'react';
-import { CalendarDays } from 'lucide-react';
-import databaseManager from '../lib/database';
+import { CalendarDays, Users } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { Calendar } from '@/components/ui/calendar';
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
-import { toast } from '@/components/ui/sonner';
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from '@/components/ui/popover';
+import { format } from 'date-fns';
+import { useState } from 'react';
+import { Card } from '@/components/ui/card';
+import { useToast } from "@/components/ui/use-toast";
 
 interface DateSelectorProps {
   onDateChange: (date: string) => void;
   activeDate: string;
 }
 
+interface AttendanceStats {
+  total_guests: number;
+  checked_in: number;
+  date: string;
+}
+
 const DateSelector = ({ onDateChange, activeDate }: DateSelectorProps) => {
-  const [availableDates, setAvailableDates] = useState<string[]>([]);
+  const [stats, setStats] = useState<AttendanceStats | null>(null);
+  const [loading, setLoading] = useState(false);
+  const { toast } = useToast();
 
-  useEffect(() => {
-    updateAvailableDates();
-  }, []);
+  // Parse the active date without timezone conversion
+  const selectedDate = activeDate ? new Date(activeDate + 'T00:00:00') : undefined;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
 
-  const updateAvailableDates = () => {
-    const dates = databaseManager.getDates();
-    setAvailableDates(dates);
+  const formatToYYYYMMDD = (date: Date) => {
+    return format(date, 'yyyy-MM-dd');
   };
 
-  const handleDateChange = (date: string) => {
-    onDateChange(date);
-    const entriesCount = databaseManager.getData(date).length;
-    toast.info(`Selected database for ${date}`, {
-      description: `${entriesCount} entries available for verification`
-    });
-  };
+  const displayDate = selectedDate ? format(selectedDate, 'MMMM d, yyyy') : '';
 
-  if (availableDates.length === 0) {
-    return (
-      <div className="p-4 bg-white rounded-lg shadow-sm mb-6">
-        <div className="text-center text-gray-500">
-          <CalendarDays className="mx-auto mb-2 opacity-50" />
-          <p>No data available</p>
-          <p className="text-sm">Upload CSV data first</p>
-        </div>
-      </div>
-    );
-  }
+  const fetchAttendanceStats = async () => {
+    if (!selectedDate) return;
+    
+    setLoading(true);
+    try {
+      const formattedDate = formatToYYYYMMDD(selectedDate);
+      console.log('Fetching stats for date:', formattedDate);
+      
+      const response = await fetch(`https://verifai-199983032721.us-central1.run.app/attendance/${formattedDate}`, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      });
+      
+      if (!response.ok) {
+        throw new Error(`Failed to fetch attendance stats: ${response.statusText}`);
+      }
+      
+      const data = await response.json();
+      console.log('Received stats:', data);
+      setStats(data);
+      
+      toast({
+        title: "Statistics Loaded",
+        description: `Showing attendance for ${format(selectedDate, 'MMMM d, yyyy')}`,
+      });
+    } catch (error) {
+      console.error('Error fetching attendance stats:', error);
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: "Failed to load attendance statistics. Please try again.",
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
 
   return (
-    <div className="p-4 bg-white rounded-lg shadow-sm mb-6">
-      <h2 className="text-lg font-medium mb-3">Select Database Date</h2>
-      <Select
-        value={activeDate || availableDates[0]}
-        onValueChange={handleDateChange}
-      >
-        <SelectTrigger className="w-full">
-          <SelectValue placeholder="Select date" />
-        </SelectTrigger>
-        <SelectContent position="popper">
-          {availableDates.map(date => (
-            <SelectItem key={date} value={date}>
-              {date}
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
+    <div className="p-4 bg-white rounded-lg shadow-sm">
+      <h2 className="text-lg font-medium mb-3">Select Date</h2>
+      <div className="space-y-4">
+        <Popover>
+          <PopoverTrigger asChild>
+            <Button
+              variant="outline"
+              className={`w-full justify-start text-left font-normal ${!selectedDate ? 'text-muted-foreground' : ''}`}
+            >
+              <CalendarDays className="mr-2 h-4 w-4" />
+              {selectedDate ? (
+                <>
+                  <span className="mr-2">{displayDate}</span>
+                  <span className="text-muted-foreground">({formatToYYYYMMDD(selectedDate)})</span>
+                </>
+              ) : (
+                "Pick a date"
+              )}
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent className="w-auto p-0" align="start">
+            <Calendar
+              mode="single"
+              selected={selectedDate}
+              onSelect={(date) => {
+                if (date) {
+                  // Set time to midnight to avoid timezone issues
+                  date.setHours(0, 0, 0, 0);
+                  // Format date as YYYY-MM-DD
+                  onDateChange(formatToYYYYMMDD(date));
+                  // Reset stats when date changes
+                  setStats(null);
+                }
+              }}
+              disabled={(date) => {
+                const oneYearAgo = new Date(today);
+                oneYearAgo.setFullYear(oneYearAgo.getFullYear() - 1);
+                return date > today || date < oneYearAgo;
+              }}
+              initialFocus
+              fromDate={new Date(today.getFullYear() - 1, today.getMonth(), today.getDate())}
+              toDate={today}
+            />
+          </PopoverContent>
+        </Popover>
+
+        {selectedDate && (
+          <Button 
+            variant="secondary" 
+            className="w-full" 
+            onClick={fetchAttendanceStats}
+            disabled={loading}
+          >
+            <Users className="mr-2 h-4 w-4" />
+            {loading ? 'Loading...' : 'View Attendance Stats'}
+          </Button>
+        )}
+
+        {stats && (
+          <Card className="p-4">
+            <h3 className="font-medium mb-2">Attendance Statistics</h3>
+            <p className="text-sm text-muted-foreground">
+              {stats.checked_in} out of {stats.total_guests} guests checked in
+            </p>
+            <div className="mt-2 w-full bg-secondary h-2 rounded-full overflow-hidden">
+              <div 
+                className="bg-primary h-full transition-all duration-500"
+                style={{ 
+                  width: `${stats.total_guests > 0 ? (stats.checked_in / stats.total_guests * 100) : 0}%` 
+                }}
+              />
+            </div>
+          </Card>
+        )}
+      </div>
     </div>
   );
 };

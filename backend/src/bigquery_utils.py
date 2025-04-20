@@ -139,7 +139,7 @@ def upload_to_bigquery(df: pd.DataFrame, table_id: str = TABLE_ID) -> Dict[str, 
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")
 
-def check_email_exists(email: str, table_id: str = TABLE_ID) -> bool:
+def check_email_exists(email: str, date: str, table_id: str = TABLE_ID) -> Dict[str, Any]:
     client = get_bigquery_client()
     try:
         # Sanitize input
@@ -147,45 +147,52 @@ def check_email_exists(email: str, table_id: str = TABLE_ID) -> bool:
         email = email.replace("'", "''")
         email = email.lower()
         
+        # Sanitize date input
+        date = clean_text_for_csv(date)
+        date = date.replace("'", "''")
+        
         query = f"""
-        SELECT 1 FROM `{PROJECT_ID}.{DATASET_ID}.{table_id}`
+        SELECT 1
+        FROM `{PROJECT_ID}.{DATASET_ID}.{table_id}`
         WHERE email = '{email}'
+        AND date = '{date}'
         LIMIT 1
         """
         
         results = list(client.query(query))
-        
-        # Return True if any results found, False otherwise
         return {"exists": len(results) > 0}
         
     except Exception as e:
-        # Handle the error as needed
         print(f"Email check failed: {str(e)}")
         return {"exists": False}
 
-def update_attendance(email: str, date_str: str, attendance_value: str, table_id: str = TABLE_ID) -> Dict[str, Any]:
+def update_attendance(email: str, date: str, attendance_value: str, table_id: str = TABLE_ID) -> Dict[str, Any]:
     client = get_bigquery_client()
     try:
         # Clean and sanitize the input values
-        email = clean_text_for_csv(email).replace("'", "''")
-        attendance_value = clean_text_for_csv(attendance_value).replace("'", "''")
-        date_str = clean_text_for_csv(date_str)
+        email = clean_text_for_csv(email)
+        email = email.replace("'", "''")
+        email = email.lower()
+        
+        # Sanitize date input
+        date = clean_text_for_csv(date)
+        date = date.replace("'", "''")
 
+        # Simple update query
         query = f"""
         UPDATE `{PROJECT_ID}.{DATASET_ID}.{table_id}`
         SET attendance = '{attendance_value}'
-        WHERE email = '{email}' AND date = '{date_str}'
+        WHERE email = '{email}' 
+        AND date = '{date}'
         """
         job = client.query(query)
         job.result()
-
-        if job.num_dml_affected_rows == 0:
-            return {"success": False, "message": "No matching records found to update"}
+        print(job.num_dml_affected_rows)
 
         return {
             "success": True,
             "rows_updated": job.num_dml_affected_rows,
-            "message": f"Updated attendance for {email} on {date_str}"
+            "message": f"Updated attendance for {email} on {date}"
         }
 
     except Exception as e:
@@ -220,3 +227,39 @@ def get_table_columns(table_id: str = TABLE_ID) -> List[str]:
         return [field.name for field in table.schema]
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to get columns: {str(e)}")
+
+def get_attendance_stats_for_date(date: str, table_id: str = TABLE_ID) -> Dict[str, Any]:
+    client = get_bigquery_client()
+    try:
+        # Sanitize date input
+        date = clean_text_for_csv(date)
+        date = date.replace("'", "''")
+        
+        query = f"""
+        SELECT 
+            COUNT(*) as total_guests,
+            COUNTIF(attendance = 'True') as checked_in,
+            date
+        FROM `{PROJECT_ID}.{DATASET_ID}.{table_id}`
+        WHERE date = '{date}'
+        GROUP BY date
+        """
+        
+        results = list(client.query(query))
+        
+        if not results:
+            return {
+                "total_guests": 0,
+                "checked_in": 0,
+                "date": date
+            }
+            
+        row = results[0]
+        return {
+            "total_guests": row.total_guests,
+            "checked_in": row.checked_in,
+            "date": date
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to get attendance stats: {str(e)}")
