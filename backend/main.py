@@ -10,7 +10,14 @@ from pydantic import BaseModel, EmailStr
 # Add these models to main.py
 
 # Import the BigQuery utilities
-from src.bigquery_utils import upload_to_bigquery, check_email_exists, get_table_columns, get_events_list, update_attendance
+from src.bigquery_utils import (
+    upload_to_bigquery, 
+    check_email_exists, 
+    get_table_columns, 
+    get_events_list, 
+    update_attendance,
+    get_attendance_stats_for_date
+)
 
 app = FastAPI(title="CSV to BigQuery API")
 
@@ -43,15 +50,21 @@ class EventSummary(BaseModel):
 class VerificationRequest(BaseModel):
     field: str  # 'email' or 'name'
     value: str
+    date: str
 
 class VerificationResponse(BaseModel):
     exists: bool
-    matches: List[Dict[str, Any]] = []
+    message: str = ""
     
 class UploadResponse(BaseModel):
     success: bool
     rows_uploaded: int
     message: str
+
+class AttendanceStats(BaseModel):
+    total_guests: int
+    checked_in: int
+    date: str
 
 @app.post("/upload-csv/", response_model=UploadResponse)
 async def upload_csv(
@@ -99,20 +112,28 @@ async def upload_csv(
 @app.post("/verify/")
 async def verify_data_endpoint(verification: VerificationRequest):
     """
-    Verify if a specific email exists in the BigQuery table
+    Verify if a specific email exists in the BigQuery table for a given date and update attendance if verified
     """
     try:
-        # Call the simplified function that returns a boolean
-        exists = check_email_exists(verification.value)
-        print(exists)
+        # First check if email exists for the date
+        exists_result = check_email_exists(verification.value, verification.date)
         
-        # Since our function now returns just True/False, we create an empty matches list
-        return exists
+        if exists_result["exists"]:
+            # If email exists, update attendance to True
+            update_attendance(
+                email=verification.value,
+                date=verification.date,
+                attendance_value="True"
+            )
+            return {"exists": True, "message": "Verified and attendance marked"}
+        
+        return {"exists": False, "message": "Email not found for the given date"}
         
     except HTTPException:
-        # Re-raise HTTP exceptions
+        print(f"HTTPException: {str(e)}")
         raise
     except Exception as e:
+        print(f"Exception: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Verification failed: {str(e)}")
     
 
@@ -164,6 +185,20 @@ async def get_events():
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to retrieve events: {str(e)}")
+
+@app.get("/attendance/{date}", response_model=AttendanceStats)
+async def get_attendance_stats(date: str):
+    """
+    Get attendance statistics for a specific date
+    """
+    try:
+        stats = get_attendance_stats_for_date(date)
+        return AttendanceStats(**stats)
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Error getting attendance stats: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to get attendance stats: {str(e)}")
 
 if __name__ == "__main__":
     import uvicorn
