@@ -46,7 +46,7 @@ const DateSelector = ({ onDateChange, activeDate }: DateSelectorProps) => {
       const formattedDate = formatToYYYYMMDD(selectedDate);
       console.log('Fetching stats for date:', formattedDate);
       
-      const response = await fetch(`https://verifai-199983032721.us-central1.run.app/attendance/${formattedDate}`, {
+      const response = await fetch(`https://verifai-199983032721.northamerica-northeast2.run.app/attendance/${formattedDate}`, {
         method: 'GET',
         headers: {
           'Content-Type': 'application/json',
