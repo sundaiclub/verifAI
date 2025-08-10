@@ -11,7 +11,7 @@ interface CSVUploadProps {
   onUploadComplete: (date: string) => void;
 }
 
-const API_URL = 'https://verifai-199983032721.us-central1.run.app';
+const API_URL = 'https://verifai-199983032721.northamerica-northeast2.run.appp';
 
 const CSVUpload = ({ onUploadComplete }: CSVUploadProps) => {
   const [uploading, setUploading] = useState(false);
