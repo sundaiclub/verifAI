@@ -50,7 +50,7 @@ const QRScannerScreen = ({ selectedDate, onBack }: QRScannerScreenProps) => {
         lastScannedRef.current = decodedText;
 
         try {
-          const response = await fetch("https://verifai-199983032721.us-central1.run.app/verify/", {
+          const response = await fetch("https://verifai-199983032721.northamerica-northeast2.run.app/verify/", {
             method: "POST",
             headers: { 
               "Content-Type": "application/json",
